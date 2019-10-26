@@ -9,7 +9,7 @@ port = 1337
 def image():
     with open("words.jpg", "wb") as outputFile:
         outputFile.write(request.data)
-        return("Image received")
+        return "Image received"
 
 
 @app.route('/handright')
