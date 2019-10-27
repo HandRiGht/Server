@@ -109,7 +109,7 @@ class Words:
         correct = []
 
         print(self.total_box_count,len(self.mapping))
-        start = len(word)
+        start = 0
         for i in range(0,len(word)):
             try:
                 if word[0].lower() == self.mapping[i][0].lower():
