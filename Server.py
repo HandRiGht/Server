@@ -37,12 +37,18 @@ def run():
     return word.detect_document()
 
 
+@app.route('/mobile/score')
+def play():
+    return str(word.max_score)
+
+
+
 @app.route('/mobile/check')
 def check():
-    print("THIS")
-    print(word.wordCache)
-    print("THIS2")
     word.calculateIncorrectLetters(word.wordCache)
+    #with open("Updated_change.jpg", "rb") as image_file:
+    #    encoded_string = base64.b64encode(image_file.read())
+    #eturn encoded_string
     return send_from_directory("", "Updated_change.jpg")
 
 

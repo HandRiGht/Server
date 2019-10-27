@@ -8,6 +8,7 @@ class Words:
     path = ""
     total_box_count = 0
     mapping = []
+    max_score = 600
     wordCache = ""
 
     def __init__(self,path):
@@ -32,61 +33,29 @@ class Words:
         height, width, channels = image.shape
         print(correct)
         #height always 600
-        if not all(correct):
-            correct = Smoothing(len(correct)* 5,correct)
-        else:
-            correct = [not x for x in correct]
+        correct = ErrorGradient(correct)
+        print(correct)
         adding = width/len(correct)
         start = 0
         print(correct)
         for i in correct:
-            cv2.rectangle(overlay, (start, 0), (int(start + adding), height), (0, 255*(1-i), (255*i) ), -1)
+            cv2.rectangle(overlay, (start, 0), (int(start + adding), height), (0, 255*(i), (255*(1-i)) ), -1)
 
             start += int(adding)
         cv2.addWeighted(overlay, alpha, output, 1 - alpha, 0, output)
-
         #cv2.imshow("output",output)
         #cv2.waitKey(0)
         cv2.imwrite('Updated_change.jpg', output)
-        cv2.imshow("output",output)
-        cv2.waitKey(0)
-        return image
-
-    def process_image(self):
-
-        image = cv2.imread(self.path)
-        gray = cv2.cvtColor(image,cv2.COLOR_BGR2GRAY)
-
-        #binary
-        ret,thresh = cv2.threshold(gray,127,255,cv2.THRESH_BINARY_INV)
-
-        #dilation
-        kernel = np.ones((5,5), np.uint8)
-        img_dilation = cv2.dilate(thresh, kernel, iterations=1)
-
-        #find contours
-        ctrs, hier = cv2.findContours(img_dilation.copy(), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-
-        #sort contours
-        sorted_ctrs = sorted(ctrs, key=lambda ctr: cv2.boundingRect(ctr)[0])
-
-        self.total_box_count = len(sorted_ctrs)
-        for i, ctr in enumerate(sorted_ctrs):
-            x, y, w, h = cv2.boundingRect(ctr)
-
-            # Getting ROI
-            roi = image[y:y+h, x:x+w]
-
-            # show ROI
-            cv2.rectangle(image,(x,y),( x + w, y + h ),(90,0,255),2)
-
+        # cv2.imshow("output",output)
+        # cv2.waitKey(0)
         return image
 
 
     def detect_document(self):
         """Detects document features in an image."""
         final_string = ""
-        self.mapping = []
+        self.max_score = 600
+        self.mapping.clear()
         from google.cloud import vision
         import io
         client = vision.ImageAnnotatorClient()
@@ -116,6 +85,12 @@ class Words:
                             word_text, word.confidence))
                         final_string += ('Word text: {} (confidence: {})'.format(
                             word_text, word.confidence))
+                        a = 0.5
+                        b = 0.9
+                        if(word.confidence > 0 and word.confidence < a):
+                            self.max_score = 0.1 * self.max_score
+                        elif word.confidence >= a and word.confidence < 1:
+                            self.max_score = self.max_score*float(np.exp(word.confidence-a)-b)
 
                         for symbol in word.symbols:
                             print('\tSymbol: {} (confidence: {})'.format(
@@ -130,17 +105,30 @@ class Words:
 
     def calculateIncorrectLetters(self,word):
         self.detect_document()
-        #self.mapping = [("e",1),("m",1),("a",1),("i",1),("l",1)]
-        self.process_image()
+        #self.mapping = [("e",1),("m",1),("x",1),("i",1),("x",1)]
         correct = []
 
         print(self.total_box_count,len(self.mapping))
+        start = len(word)
         for i in range(0,len(word)):
-            print(word[i] + " " + self.mapping[i][0])
-            if word[i] == self.mapping[i][0]:
-                correct.append(1)
-            else:
+            try:
+                if word[0].lower() == self.mapping[i][0].lower():
+                    start = i
+                    break
+                else:
+                    correct.append(0)
+            except IndexError:
                 correct.append(0)
+        counter = 0
+        for i in range(start,len(self.mapping)):
+            try:
+                if word[counter].lower() == self.mapping[i][0].lower():
+                    correct.append(1)
+                else:
+                    correct.append(0)
+            except IndexError:
+                correct.append(0)
+            counter += 1
 
         return self.process_image2(correct, len(word))
 
@@ -149,21 +137,41 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 
-def Smoothing(word_length,i):
-    def gaussian(x, mu, sig):
-        return (1 / np.sqrt(2 * np.pi) * sig) * np.exp(-np.power(x - mu, 2.) / (2 * np.power(sig, 2.)))
+def ErrorGradient(bin_array):
 
-    mean = 10
-    std = 10
-    x = np.linspace(-2 * std, 2 * std, word_length)
-    y = gaussian(x, mean, std)
+    word_length = len(bin_array)
+    per_letter = 10
+    print(len(bin_array))
+    new = []# np.zeros((1,per_letter*word_length))
+
+    current = 0
+    for current in range(0,len(bin_array)-1):
+
+        if bin_array[current] == bin_array[current + 1]:
+            new.append(bin_array[current]*np.ones((per_letter)))
 
 
-    smoothed = np.convolve(i, y)
-##
-    smoothed = smoothed  /max(smoothed)
-    return list(smoothed)
+        elif bin_array[current] != bin_array[current+1]:
+            new.append(np.linspace(bin_array[current],bin_array[current+1],per_letter))
 
+
+    new = np.reshape(new,(1,per_letter*(len(bin_array)-1)))
+
+    def smooth(x,window_len=11,window='hanning'):
+
+
+        s=np.r_[x[window_len-1:0:-1],x,x[-2:-window_len-1:-1]]
+        #print(len(s))
+        if window == 'flat': #moving average
+            w=np.ones(window_len,'d')
+        else:
+            w=eval('np.'+window+'(window_len)')
+
+        y=np.convolve(w/w.sum(),s,mode='valid')
+        return y
+
+    y = smooth(new[0],window_len = word_length, window = 'hamming')
+    return y
 
 
 
